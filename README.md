@@ -49,9 +49,31 @@ npx jest-graph-tia run --changed-since main --dry-run  # print selection only
 
 npx jest-graph-tia audit                        # whole-codebase gap scan: which source
   --explain-json <path>  # machine-readable      # files does NO test reach?
+
+npx jest-graph-tia verify --changed-since main  # trust metric: run the FULL suite,
+  --json <path>          # machine-readable      # report failures the selection would
+                                                 # have MISSED (escapes). Exit 1 on any.
 ```
 
 `audit` runs one forward-BFS from every test file along dependency edges (same hop budgets). Source files no test reaches are your blind spots — including the sneaky kind where `foo.test.ts` accidentally imports `bar.ts` and `foo.ts` is tested by nothing. Reachability, not line coverage: an unreached file is a hard gap; a reached file may still be thin. Tune noise with `audit.excludeGlobs`.
+
+`verify` is the nightly safety net: it runs everything, then checks each failure against what selection *would* have picked. Zero escapes over time = the selection is trustworthy. Each escape names a dependency the graph doesn't know — fix with a directive, the LLM pass, or wider hop budgets.
+
+## `@tia-covers` — explicit edges, no LLM needed
+
+When a test depends on a file through something no parser can see (reads its source text with `fs`, loads a fixture, shells out to a script), declare it:
+
+```js
+// @tia-covers src/app/lib/chat/orchestrator.ts
+// @tia-covers src/app/lib/nfp/**          ← globs work too
+const src = readFileSync(ORCHESTRATOR_PATH, "utf8");
+```
+
+The CLI collects these from all test files and injects them as full-trust edges into selection **and** audit. Explicit, code-reviewed, deterministic — for fs-read structure tests this beats an inferred edge. Typos warn (`target not found in graph`).
+
+## PR visibility
+
+`run --summary-md summary.md` writes a PR-comment-ready markdown block (selected/total, jest vs graph counts, collapsible list of graph-added tests). Post it with `gh pr comment --body-file summary.md`.
 
 ## Safety fallbacks — full suite runs when
 

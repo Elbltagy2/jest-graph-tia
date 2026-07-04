@@ -71,6 +71,16 @@ This output is a contract: benchmarks and users both consume it. Version it (`ex
 - Reachability, not line coverage. Unreached = hard gap. Tests with zero graph nodes are reported as a staleness warning.
 - Exit code always 0 (informational); gate via the JSON output if desired. `auditVersion: 1`.
 
+## 6c. `@tia-covers` directives
+`// @tia-covers <path-or-glob>` in a test file declares an explicit dependency no parser can see (fs-read of source text, fixtures, shelled-out scripts). The CLI collects directives from every test file (`jest --listTests` set) and injects synthetic edges `test --covers/EXTRACTED--> target` into the parsed graph before expansion and audit. Globs resolve against files known to the graph; unresolved literal targets emit a warning (typo protection). Directives are full-trust (EXTRACTED budget): they are explicit and code-reviewed, unlike INFERRED guesses.
+
+## 6d. `verify` command — escape rate (the trust metric)
+`jest-graph-tia verify --changed-since <ref> [--json <path>]`
+1. Compute the selection exactly as `run` would (§2), without executing it.
+2. Run the FULL suite with `--json`; collect per-test-file pass/fail.
+3. `escapes = failing test files ∉ selection`. Exit 1 if any; print each with remediation hints (directive / LLM pass / hop budgets). `verifyVersion: 1` in JSON.
+Intended use: nightly CI. Escape rate over time is the number that justifies (or forbids) trusting selection — and later, any pruning experiment (§8).
+
 ## 7. Benchmark (deferred by maintainer decision)
 Phase 0 harness (`benchmarks/measure-delta.mjs`) retained; run it post-MVP on a real JS/TS+Jest repo. Delta metric becomes `findRelatedTests(expanded) − findRelatedTests(changed)`.
 
