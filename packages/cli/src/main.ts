@@ -148,9 +148,13 @@ function main(): void {
   }
 
   // 5. jest maps files → tests (baseline for --explain attribution, expanded = selection)
+  // only JS/TS paths go to jest: a .sql/.md path maps to no JS module. The signal is
+  // preserved because any JS dependent of a non-JS file is already in the expansion.
+  const JS_FILE = /\.[cm]?[jt]sx?$/;
   const existsOnDisk = (f: string) => existsSync(join(repoRoot, f));
-  const expandedExisting = expansion.files.filter(existsOnDisk);
-  const baseline = findRelatedTests(repoRoot, changed.existing.filter(existsOnDisk));
+  const forJest = (files: readonly string[]) => files.filter((f) => JS_FILE.test(f) && existsOnDisk(f));
+  const expandedExisting = forJest(expansion.files);
+  const baseline = findRelatedTests(repoRoot, forJest(changed.existing));
   const selected = findRelatedTests(repoRoot, expandedExisting);
 
   // 6. invariant: findRelatedTests(changed) ⊆ findRelatedTests(expanded)
@@ -162,11 +166,21 @@ function main(): void {
     selected.push(...missing);
   }
 
+  // amplification guard: two chained expansions (graph hops × jest reverse-traversal)
+  // can balloon toward the full suite — surface the ratio on EVERY run.
+  const fullSuite = listAllTests(repoRoot);
+  const pct = fullSuite.length === 0 ? 0 : Math.round((selected.length / fullSuite.length) * 1000) / 10;
   const graphOnlyFiles = expandedExisting.filter((f) => expansion.hits.has(f));
   console.log(
     `expanded ${changed.all.length} changed → ${expansion.files.length} files (graphify added ${graphOnlyFiles.length}); ` +
-      `selected ${selected.length} tests (jest baseline ${baseline.length})`
+      `selected ${selected.length}/${fullSuite.length} tests (${pct}% of suite; jest baseline ${baseline.length})`
   );
+  if (pct > 60) {
+    console.warn(
+      `warning: selection is ${pct}% of the suite — expansion is amplifying too much. ` +
+        `Lower traversal.inferred/traversal.extracted hop budgets, or just run the full suite.`
+    );
+  }
 
   // 7. explain
   if (args.explain || args.explainJson) {
@@ -189,7 +203,7 @@ function main(): void {
       selectedTests: selected,
       hits: expansion.hits,
       attribution,
-      fullSuiteCount: listAllTests(repoRoot).length,
+      fullSuiteCount: fullSuite.length,
       fallback,
     });
     if (args.explain) console.log("\n" + formatExplanation(explanation, { relTo: repoRoot }));
