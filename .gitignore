@@ -1,5 +1,5 @@
 node_modules/
 dist/
 *.tsbuildinfo
-graphify-out/
+/graphify-out/
 .DS_Store
