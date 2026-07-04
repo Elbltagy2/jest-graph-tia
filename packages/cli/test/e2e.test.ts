@@ -2,7 +2,7 @@
  * End-to-end: fixture repo copied to a temp dir, git history simulated,
  * CLI run as a real subprocess. Requires `npm run build` first (uses dist/).
  */
-import { cpSync, mkdtempSync, rmSync, symlinkSync, existsSync } from "node:fs";
+import { cpSync, mkdtempSync, rmSync, symlinkSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,13 +17,14 @@ function sh(cwd: string, cmd: string, args: string[]): string {
   return execFileSync(cmd, args, { cwd, encoding: "utf8" });
 }
 
-function runCli(cwd: string, args: string[]) {
-  const r = spawnSync("node", [CLI, "run", "--changed-since", "main", "--no-update-graph", ...args], {
+function runCliCmd(cwd: string, command: string, args: string[]) {
+  const r = spawnSync("node", [CLI, command, "--changed-since", "main", "--no-update-graph", ...args], {
     cwd,
     encoding: "utf8",
   });
   return { status: r.status ?? -1, out: (r.stdout ?? "") + (r.stderr ?? "") };
 }
+const runCli = (cwd: string, args: string[]) => runCliCmd(cwd, "run", args);
 
 describe("jest-graph-tia e2e on the fixture repo", () => {
   let repo: string;
@@ -76,6 +77,39 @@ describe("jest-graph-tia e2e on the fixture repo", () => {
     expect(structRow).toContain("graphify");
     // calc.test still arrives via jest's own static chain
     expect(r.out).toContain("calc.test.js");
+  });
+
+  it("--summary-md writes a PR-ready selection summary", () => {
+    const md = join(dirname(repo), "summary.md");
+    const r = runCli(repo, ["--dry-run", "--summary-md", md]);
+    expect(r.status).toBe(0);
+    const body = readFileSync(md, "utf8");
+    expect(body).toContain("jest-graph-tia — test selection");
+    expect(body).toMatch(/\*\*\d+ \/ \d+\*\* tests selected/);
+  });
+
+  it("verify: escape when a failing test isn't selected (exit 1), caught once directive added (exit 0)", () => {
+    // baseline WITHOUT the directive must live on main — otherwise the directive
+    // edit itself shows up as a changed file and the test self-selects
+    sh(repo, "bash", ["-c", `git checkout -q main && (sed -i '' '/@tia-covers/d' __tests__/math-structure.test.js 2>/dev/null || sed -i '/@tia-covers/d' __tests__/math-structure.test.js) && git -c user.email=t@t -c user.name=t commit -qam "main without directive"`]);
+    // PR branch: break math.js in the way the fs-read structure test asserts on
+    sh(repo, "bash", ["-c", `git checkout -qb escape-pr && (sed -i '' '/exports.mul/d' src/math.js 2>/dev/null || sed -i '/exports.mul/d' src/math.js) && git -c user.email=t@t -c user.name=t commit -qam "drop mul export"`]);
+
+    const escaped = runCliCmd(repo, "verify", []);
+    expect(escaped.status).toBe(1);
+    expect(escaped.out).toContain("ESCAPES: 1");
+    expect(escaped.out).toContain("math-structure.test.js");
+
+    // dev adds the directive in the PR → the same failure is now caught
+    sh(repo, "bash", ["-c", `(sed -i '' '3i\\
+// @tia-covers src/math.js
+' __tests__/math-structure.test.js 2>/dev/null || sed -i '3i // @tia-covers src/math.js' __tests__/math-structure.test.js) && git -c user.email=t@t -c user.name=t commit -qam "add directive"`]);
+    const caught = runCliCmd(repo, "verify", []);
+    expect(caught.status).toBe(0);
+    expect(caught.out).toContain("ESCAPES: 0");
+
+    // restore state for the remaining tests
+    sh(repo, "bash", ["-c", `git checkout -q feature`]);
   });
 
   it("falls back to the full suite when a lockfile changes", () => {
