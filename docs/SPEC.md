@@ -63,6 +63,14 @@ This output is a contract: benchmarks and users both consume it. Version it (`ex
 ```
 `updateGraph: true` → cli runs `graphify update <root>` before selection; failure → warn + proceed with stale graph unless staleness trips §4.3.
 
+## 6b. `audit` command — coverage-gap scan
+`jest-graph-tia audit [--explain-json <path>] [--config <path>] [--no-update-graph]`
+- Test list = `jest --listTests` (ground truth). Seed a forward BFS from every test file's nodes along OUTGOING (dependency) edges, same per-tier hop budgets as §3.
+- Universe = JS/TS files with graph nodes, minus test-like files (`*.test.*`, `*.spec.*`, `__tests__/`, `__mocks__/` — even when jest's config ignores them) minus `audit.excludeGlobs` (default: `**/*.d.ts`, `**/*.config.*`, `**/.*rc.*`).
+- Untested = universe − reached. Direction matters: a file is covered only if a test transitively DEPENDS on it; dependents never count.
+- Reachability, not line coverage. Unreached = hard gap. Tests with zero graph nodes are reported as a staleness warning.
+- Exit code always 0 (informational); gate via the JSON output if desired. `auditVersion: 1`.
+
 ## 7. Benchmark (deferred by maintainer decision)
 Phase 0 harness (`benchmarks/measure-delta.mjs`) retained; run it post-MVP on a real JS/TS+Jest repo. Delta metric becomes `findRelatedTests(expanded) − findRelatedTests(changed)`.
 

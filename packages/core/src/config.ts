@@ -12,10 +12,16 @@ export interface FallbackConfig {
   extraGlobs: string[];
 }
 
+export interface AuditConfig {
+  /** files to leave out of the untested report */
+  excludeGlobs: string[];
+}
+
 export interface TiaConfig {
   graphPath: string;
   traversal: TraversalConfig;
   fallback: FallbackConfig;
+  audit: AuditConfig;
   includeNonJs: boolean;
   updateGraph: boolean;
   jestArgs: string[];
@@ -25,6 +31,7 @@ export const DEFAULT_CONFIG: TiaConfig = {
   graphPath: "graphify-out/graph.json",
   traversal: { extracted: 6, inferred: 2, ambiguous: 0 },
   fallback: { maxGraphAgeCommits: 50, extraGlobs: [] },
+  audit: { excludeGlobs: ["**/*.d.ts", "**/*.config.*", "**/.*rc.*"] },
   includeNonJs: false,
   updateGraph: true,
   jestArgs: [],
@@ -44,6 +51,12 @@ export function resolveConfig(user: unknown): TiaConfig {
     for (const k of ["extracted", "inferred", "ambiguous"] as const) {
       const v = t[k];
       if (typeof v === "number" && Number.isInteger(v) && v >= 0) cfg.traversal[k] = v;
+    }
+  }
+  if (u.audit !== null && typeof u.audit === "object") {
+    const a = u.audit as Record<string, unknown>;
+    if (Array.isArray(a["excludeGlobs"])) {
+      cfg.audit.excludeGlobs = (a["excludeGlobs"] as unknown[]).filter((g): g is string => typeof g === "string");
     }
   }
   if (u.fallback !== null && typeof u.fallback === "object") {

@@ -32,6 +32,8 @@ export interface ParsedGraph {
   nodesOfFile: Map<string, string[]>;
   /** nodeId → incoming edges (edges whose target is this node); edge.source is the dependent */
   incoming: Map<string, GraphEdge[]>;
+  /** nodeId → outgoing edges (edges whose source is this node); edge.target is the dependency */
+  outgoing: Map<string, GraphEdge[]>;
   nodeCount: number;
   edgeCount: number;
 }
@@ -88,6 +90,7 @@ export function parseGraph(raw: unknown): ParsedGraph {
   }
 
   const incoming = new Map<string, GraphEdge[]>();
+  const outgoing = new Map<string, GraphEdge[]>();
   let edgeCount = 0;
   for (const e of rawLinks) {
     if (e === null || typeof e !== "object") throw new GraphSchemaError("edge is not an object");
@@ -106,8 +109,11 @@ export function parseGraph(raw: unknown): ParsedGraph {
     const list = incoming.get(target);
     if (list) list.push(edge);
     else incoming.set(target, [edge]);
+    const out = outgoing.get(source);
+    if (out) out.push(edge);
+    else outgoing.set(source, [edge]);
     edgeCount++;
   }
 
-  return { nodes, nodesOfFile, incoming, nodeCount: nodes.size, edgeCount };
+  return { nodes, nodesOfFile, incoming, outgoing, nodeCount: nodes.size, edgeCount };
 }

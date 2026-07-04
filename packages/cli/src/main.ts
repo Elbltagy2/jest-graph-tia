@@ -12,6 +12,7 @@ import {
   checkFallback,
   explainSelection,
   formatExplanation,
+  auditCoverage,
   type TiaConfig,
 } from "@jest-graph-tia/core";
 import { getChangedFiles, graphAgeCommits } from "./git.js";
@@ -94,10 +95,95 @@ function loadConfig(repoRoot: string, configPath?: string): TiaConfig {
   }
 }
 
+const USAGE = `usage:
+  jest-graph-tia run --changed-since <ref> [--dry-run] [--explain] [--explain-json <path>] [--fallback-full] [--config <path>] [--no-update-graph]
+  jest-graph-tia audit [--explain-json <path>] [--config <path>] [--no-update-graph]`;
+
+/** `audit`: scan the whole codebase and report source files no test reaches. */
+function auditMain(args: CliArgs): void {
+  const repoRoot = git(["rev-parse", "--show-toplevel"], process.cwd());
+  const cfg = loadConfig(repoRoot, args.configPath);
+
+  if (cfg.updateGraph && !args.noUpdateGraph) {
+    const u = updateGraph(repoRoot);
+    if (!u.ok) console.warn(`warning: ${u.message} — proceeding with existing graph`);
+  }
+  const graphPath = isAbsolute(cfg.graphPath) ? cfg.graphPath : resolve(repoRoot, cfg.graphPath);
+  const loaded = loadGraph(graphPath);
+  if (!loaded.ok || !loaded.graph) fail(`audit needs a graph: ${loaded.error}`);
+
+  const testFiles = listAllTests(repoRoot).map((t) =>
+    t.startsWith(repoRoot + "/") ? t.slice(repoRoot.length + 1) : t
+  );
+  if (testFiles.length === 0) fail("jest --listTests returned no tests — is jest set up in this repo?");
+
+  const result = auditCoverage(loaded.graph, {
+    traversal: cfg.traversal,
+    testFiles,
+    excludeGlobs: cfg.audit.excludeGlobs,
+  });
+
+  const coveredCount = result.covered.size;
+  const pct = result.totalSourceFiles === 0 ? 0 : Math.round((coveredCount / result.totalSourceFiles) * 1000) / 10;
+  console.log(
+    `audit: ${result.totalSourceFiles} source files known to the graph · ` +
+      `${coveredCount} reached by tests (${pct}%) · ${result.untested.length} UNTESTED`
+  );
+  if (result.testsNotInGraph.length > 0) {
+    console.warn(
+      `warning: ${result.testsNotInGraph.length} test files have no graph nodes (stale graph?) — run graphify update`
+    );
+  }
+
+  if (result.untested.length > 0) {
+    // group by top-level directory for readability
+    const byDir = new Map<string, string[]>();
+    for (const f of result.untested) {
+      const dir = f.includes("/") ? f.slice(0, f.lastIndexOf("/")) : ".";
+      const list = byDir.get(dir);
+      if (list) list.push(f);
+      else byDir.set(dir, [f]);
+    }
+    console.log("\nUNTESTED FILES (no test reaches them through the graph):");
+    for (const [dir, files] of [...byDir.entries()].sort((a, b) => b[1].length - a[1].length)) {
+      console.log(`\n  ${dir}/  (${files.length})`);
+      for (const f of files) console.log(`    ${f.slice(dir === "." ? 0 : dir.length + 1)}`);
+    }
+  } else {
+    console.log("every source file in the graph is reachable from at least one test");
+  }
+
+  if (args.explainJson) {
+    writeFileSync(
+      args.explainJson,
+      JSON.stringify(
+        {
+          auditVersion: 1,
+          totalSourceFiles: result.totalSourceFiles,
+          coveredCount,
+          coveredPercent: pct,
+          untested: result.untested,
+          testsNotInGraph: result.testsNotInGraph,
+          covered: [...result.covered.values()],
+        },
+        null,
+        2
+      )
+    );
+    console.log(`\naudit JSON → ${args.explainJson}`);
+  }
+  // exit 0 always: audit informs, it does not gate (make it gate via jq on the JSON if wanted)
+  process.exit(0);
+}
+
 function main(): void {
   const args = parseArgs(process.argv.slice(2));
+  if (args.command === "audit") {
+    auditMain(args);
+    return;
+  }
   if (args.command !== "run") {
-    console.error("usage: jest-graph-tia run --changed-since <ref> [--dry-run] [--explain] [--explain-json <path>] [--fallback-full] [--config <path>] [--no-update-graph]");
+    console.error(USAGE);
     process.exit(args.command ? 2 : 0);
   }
 

@@ -46,7 +46,12 @@ npx jest-graph-tia run --changed-since main --dry-run  # print selection only
   --fallback-full        # force the full suite
   --config <path>        # default: jest-graph-tia.config.json
   --no-update-graph      # skip the incremental `graphify update` before selection
+
+npx jest-graph-tia audit                        # whole-codebase gap scan: which source
+  --explain-json <path>  # machine-readable      # files does NO test reach?
 ```
+
+`audit` runs one forward-BFS from every test file along dependency edges (same hop budgets). Source files no test reaches are your blind spots — including the sneaky kind where `foo.test.ts` accidentally imports `bar.ts` and `foo.ts` is tested by nothing. Reachability, not line coverage: an unreached file is a hard gap; a reached file may still be thin. Tune noise with `audit.excludeGlobs`.
 
 ## Safety fallbacks — full suite runs when
 

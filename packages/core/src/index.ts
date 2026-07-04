@@ -15,6 +15,7 @@ export {
   type FallbackConfig,
 } from "./config.js";
 export { expandFiles, type ExpansionResult, type FileHit } from "./expand.js";
+export { auditCoverage, type AuditOptions, type AuditResult, type CoveredFile } from "./audit.js";
 export { checkFallback, globToRegExp, type FallbackFacts, type FallbackDecision } from "./fallback.js";
 export {
   explainSelection,
