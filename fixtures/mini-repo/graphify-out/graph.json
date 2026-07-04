@@ -1,0 +1,28 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    { "id": "src_math", "label": "math.js", "file_type": "code", "source_file": "src/math.js", "source_location": "L1" },
+    { "id": "src_calc", "label": "calc.js", "file_type": "code", "source_file": "src/calc.js", "source_location": "L1" },
+    { "id": "src_pricing", "label": "pricing.js", "file_type": "code", "source_file": "src/pricing.js", "source_location": "L1" },
+    { "id": "src_rules", "label": "rules.json", "file_type": "data", "source_file": "src/rules.json", "source_location": "L1" },
+    { "id": "src_events", "label": "events.js", "file_type": "code", "source_file": "src/events.js", "source_location": "L1" },
+    { "id": "src_listener", "label": "listener.js", "file_type": "code", "source_file": "src/listener.js", "source_location": "L1" },
+    { "id": "test_calc", "label": "calc.test.js", "file_type": "code", "source_file": "__tests__/calc.test.js", "source_location": "L1" },
+    { "id": "test_pricing", "label": "pricing.test.js", "file_type": "code", "source_file": "__tests__/pricing.test.js", "source_location": "L1" },
+    { "id": "test_listener", "label": "listener.test.js", "file_type": "code", "source_file": "__tests__/listener.test.js", "source_location": "L1" },
+    { "id": "src_legacy", "label": "legacy.js", "file_type": "code", "source_file": "src/legacy.js", "source_location": "L1" }
+  ],
+  "links": [
+    { "source": "src_calc", "target": "src_math", "relation": "imports_from", "confidence": "EXTRACTED", "confidence_score": 1.0, "weight": 1.0 },
+    { "source": "test_calc", "target": "src_calc", "relation": "imports_from", "confidence": "EXTRACTED", "confidence_score": 1.0, "weight": 1.0 },
+    { "source": "src_pricing", "target": "src_rules", "relation": "reads", "confidence": "INFERRED", "confidence_score": 0.9, "weight": 1.0 },
+    { "source": "test_pricing", "target": "src_pricing", "relation": "imports_from", "confidence": "EXTRACTED", "confidence_score": 1.0, "weight": 1.0 },
+    { "source": "src_listener", "target": "src_events", "relation": "listens_to_event", "confidence": "INFERRED", "confidence_score": 0.8, "weight": 1.0 },
+    { "source": "test_listener", "target": "src_listener", "relation": "imports_from", "confidence": "EXTRACTED", "confidence_score": 1.0, "weight": 1.0 },
+    { "source": "test_listener", "target": "src_events", "relation": "imports_from", "confidence": "EXTRACTED", "confidence_score": 1.0, "weight": 1.0 },
+    { "source": "src_legacy", "target": "src_math", "relation": "similar_to", "confidence": "AMBIGUOUS", "confidence_score": 0.4, "weight": 1.0 }
+  ],
+  "hyperedges": []
+}
