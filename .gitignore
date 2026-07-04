@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.tsbuildinfo
+graphify-out/
+.DS_Store

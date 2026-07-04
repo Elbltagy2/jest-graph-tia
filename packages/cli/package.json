@@ -1,0 +1,21 @@
+{
+  "name": "jest-graph-tia",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "jest-graph-tia": "./dist/main.js" },
+  "main": "./dist/main.js",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@jest-graph-tia/core": "0.1.0"
+  },
+  "peerDependencies": {
+    "jest": ">=29"
+  },
+  "peerDependenciesMeta": {
+    "jest": { "optional": false }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@jest-graph-tia/core",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b"
+  }
+}
