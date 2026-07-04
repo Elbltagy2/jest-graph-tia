@@ -1,63 +1,62 @@
 # CLAUDE.md — jest-graph-tia
 
 ## What this project is
-A Test Impact Analysis (TIA) orchestrator for Jest. On a PR, it selects the minimal safe set of tests by taking the **union** of:
-- Jest's own static-import-based selection (`--findRelatedTests --listTests`)
-- Semantic impact derived from a Graphify knowledge graph (`graphify-out/graph.json`)
+A Test Impact Analysis (TIA) orchestrator for Jest. On a PR, it selects the minimal safe set of tests via **file expansion**:
+1. `git diff` → changed files
+2. Graphify knowledge graph (`graphify-out/graph.json`) expands changed files → related files (reverse-BFS, per-tier hop budgets)
+3. `jest --findRelatedTests <expanded files> --listTests` maps files → tests
+4. Run those tests, propagate Jest's exit code
+
+Jest owns ALL test discovery. The graph only widens Jest's input file set.
 
 ## The one invariant that must never break
-**Graphify only adds tests. It never removes a test that Jest's static analysis selected.**
-`jestRelatedTests ⊆ finalSelection` — always. There is a property test enforcing this; if you change selection logic, that test must still pass.
+**Expansion only adds files. `changed ⊆ expanded` — always.** Since Jest's relatedness is monotonic in its input set, `findRelatedTests(changed) ⊆ findRelatedTests(expanded)` follows. A property test enforces superset-ness of `expandFiles`; if you change expansion logic, that test must still pass.
 
-## Why the union (not intersection, not graph-only)
-- Jest's static graph is battle-tested but blind to: dynamic imports, DI/runtime wiring, non-JS files (SQL, JSON fixtures, configs), monorepo symbol-level edges, semantic coupling (feature flags, event names).
-- Graphify sees those, but its INFERRED/AMBIGUOUS edges can be wrong. A wrong extra edge = one wasted test run (cheap). A wrongly pruned test = shipped bug (fatal for trust).
-- Therefore: union for v1. Pruning is a v2 experiment gated on escape-rate data.
+## Why expansion (not graph-selects-tests, not pruning)
+- Jest's static graph is battle-tested but blind to: dynamic imports, DI/runtime wiring, non-JS files (SQL, JSON fixtures, configs), monorepo symbol-level edges, semantic coupling.
+- Graphify sees those, but its INFERRED/AMBIGUOUS edges can be wrong. A wrong extra file = a few wasted test runs (cheap). A wrongly pruned test = shipped bug (fatal for trust).
+- Letting Jest do the file→test mapping keeps test discovery in one battle-tested place; the graph never touches test selection directly.
+- Pruning is a future experiment gated on escape-rate data.
 
 ## Architecture (do not deviate without asking)
 ```
 packages/
-  core/         # pure logic: diff → graph traversal → union → explain
-  cli/          # jest-graph-tia run|explain ; shells out to git, graphify, jest
-fixtures/       # deterministic mini-repo + hand-written graph.json for tests
-benchmarks/     # measure-delta harness + RESULTS.md (public!)
+  core/         # pure logic: graph parse → expansion → explain. No process spawning, no jest import.
+  cli/          # jest-graph-tia run ; shells out to git, graphify, jest; owns exit codes
+fixtures/       # deterministic mini Jest repo + graph.json for tests
+benchmarks/     # measure-delta harness + RESULTS.md (post-MVP)
 examples/       # CI YAML stubs only
 docs/SPEC.md    # detailed behavior spec — source of truth
 ```
-- `core` never spawns processes and never imports jest. It takes file lists and a parsed graph, returns file lists + explanations.
-- `cli` owns all process spawning (git, graphify, jest) and exit-code propagation.
 - Graphify and Jest are invoked as external CLIs / artifacts. We never vendor or fork their code.
 
-## Graph traversal rules
-graph.json nodes include code entities and file references; edges carry a confidence tag: `EXTRACTED` (AST fact), `INFERRED` (model-derived), `AMBIGUOUS`.
-Reverse-BFS from changed files toward test files with per-tier hop budgets (defaults, overridable in config):
-- EXTRACTED: maxHops 6
-- INFERRED: maxHops 2
-- AMBIGUOUS: maxHops 1 (off by default via config `ambiguous: false`)
-A path's tier is its weakest edge. Stop expanding a path when its tier budget is exhausted.
-Test-file detection: Jest's testMatch patterns from the target repo's jest config; fall back to `**/*.{test,spec}.{js,jsx,ts,tsx}`.
+## graph.json facts (verified against graphify 0.8.39 — see SPEC §3)
+- networkx node-link JSON; edges under `links`, not `edges`.
+- Edge direction: `source depends on target`. Dependents-of-X = incoming edges.
+- Node→file via `source_file` (repo-relative). All parsing lives in `core/src/graphSchema.ts` only.
+- Tiers on edges: `confidence: EXTRACTED | INFERRED | AMBIGUOUS`. Budgets: 6 / 2 / 0 (ambiguous off by default). `contains` edges are hop-free.
 
-## Fallback-to-full-suite triggers (config: `fallback.triggers`)
+## Fallback-to-full-suite triggers (config: `fallback`)
 Run the entire suite (and say why on stdout) when any of:
 - package-lock.json / yarn.lock / pnpm-lock.yaml changed
-- jest.config.* or babel/tsconfig changed
+- jest.config.* / babel / tsconfig changed
 - graph.json missing, unparsable, or older than `fallback.maxGraphAgeCommits` behind merge-base
 - any changed file resolves to zero nodes in the graph
 - `.env*` or CI workflow files changed
 
 ## Commands
-- `jest-graph-tia run --changed-since <ref>` — select + execute via jest, propagate exit code
+- `jest-graph-tia run --changed-since <ref>` — expand + select + execute via jest, propagate exit code
 - `--dry-run` — print selection, run nothing
-- `--explain` — per test: source (jest|graphify|both), edge path, hops, weakest tier
+- `--explain` — per test: source (jest|graphify), via-file, edge path, hops, weakest tier
 - `--fallback-full` — force full suite
-- `benchmarks/measure-delta.mjs --repo <path> --commits <n>` — the go/no-go experiment
+- `--config <path>` — config file (default jest-graph-tia.config.json)
 
 ## Engineering conventions
 - TypeScript strict, ESM, Node >= 20, npm workspaces
-- Tests with Jest (dogfooding); fixtures are deterministic — no snapshot of live repos
+- Tests with Jest (dogfooding); fixtures deterministic — no snapshots of live repos
 - No runtime network or LLM calls; graph.json is read pre-built
-- Conventional commits; keep PR-sized changes small
-- `--explain` output is a first-class feature (it's how users learn to trust selection) — never let it rot
+- Conventional commits, plain messages, no AI attribution; keep changes small
+- `--explain` output is a first-class feature — never let it rot
 
 ## Current phase
-Phase 0: run the benchmark harness on a real repo and write benchmarks/RESULTS.md. Do not build product code until the delta result is reviewed by the maintainer.
+MVP build (Phase 0 benchmark deferred by maintainer decision, 2026-07-04). Target: `run --changed-since main --dry-run --explain` works on the fixture repo; `run` executes the same set and propagates Jest's exit code.
