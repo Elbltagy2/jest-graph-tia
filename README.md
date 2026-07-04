@@ -1,30 +1,92 @@
-# jest-graph-tia — Starter Kit
+# jest-graph-tia
 
-Four files to hand to your coding agent (Claude Code etc.) to kick off the project.
+Test Impact Analysis for Jest, powered by a [Graphify](https://github.com/Graphify-Labs/graphify) knowledge graph.
 
-## How to use
+On a PR, it runs only the tests your change can actually affect — including impacts Jest's static import graph **cannot see**: dynamic requires with computed paths, JSON/SQL/config dependencies, event-name coupling, DI wiring.
 
-1. Create an empty git repo: `mkdir jest-graph-tia && cd jest-graph-tia && git init`
-2. Copy `CLAUDE.md`, `docs/SPEC.md`, and `benchmarks/measure-delta.mjs` into it, commit.
-3. Open your agent in that repo and paste the contents of `PROMPT.md` (everything below the divider line).
-4. When the agent asks for the target repo, point it at a real codebase you know well that:
-   - uses Jest,
-   - already has a Graphify graph built (`graphify <root>` → `graphify-out/graph.json`),
-   - has ≥20 merge commits of history.
+## How it works
 
-## What happens
+```
+git diff                    →  changed files
+graphify graph.json         →  expand: changed ∪ graph-related files   (reverse-BFS, hop budgets)
+jest --findRelatedTests     →  map the expanded file set to tests
+jest --runTestsByPath       →  run exactly those, propagate exit code
+```
 
-- **Phase 0 (first, mandatory):** the agent runs the delta benchmark and writes `benchmarks/RESULTS.md`. This answers the only question that matters: does Graphify find impacted tests that Jest's static analysis misses? Review it before letting the agent continue.
-- **Phase 1:** only if the delta is meaningful — the agent builds the MVP monorepo per `docs/SPEC.md`.
+The graph only ever **widens** Jest's input file set — Jest owns all test discovery. Hard invariant (property-tested): everything `jest --findRelatedTests` would select from your raw diff is always selected. A wrong graph edge costs one extra test run; it can never skip a test.
 
-## The two rules baked into every file
+## Example
 
-1. **Union invariant:** Graphify only ever ADDS tests to Jest's baseline; it never removes one. Worst case of a bad semantic edge = one extra test run, never a skipped failing test.
-2. **Verify before trusting:** the benchmark script marks Graphify's graph.json schema and edge direction as assumptions to validate against a real artifact — the agent is instructed to confirm both before believing any numbers.
+`src/pricing.js` loads `rules.json` through a dynamic require — invisible to Jest:
 
-## Files
+```
+$ jest-graph-tia run --changed-since main --dry-run --explain
+changed files vs main (merge-base c419fb85): 1
+expanded 1 changed → 3 files (graphify added 2); selected 1 tests (jest baseline 0)
 
-- `PROMPT.md` — the kickoff prompt you paste into the agent
-- `CLAUDE.md` — persistent project context the agent reads every session
-- `docs/SPEC.md` — detailed behavior spec (source of truth on conflicts)
-- `benchmarks/measure-delta.mjs` — Phase 0 experiment harness (runnable skeleton; agent hardens it)
+TEST                       SOURCE    VIA_FILE        HOPS  WEAKEST_TIER  PATH
+-------------------------  --------  --------------  ----  ------------  -----------------------
+__tests__/pricing.test.js  graphify  src/pricing.js  1     INFERRED      rules.json → pricing.js
+
+selected 1 tests (jest: 0, graphify: +1) — 33.3% of full suite (3)
+```
+
+Jest alone selected **zero** tests for that change. The graph caught it.
+
+## Install & use
+
+Prereqs: Node ≥ 20, Jest in the target repo, [graphify CLI](https://github.com/Graphify-Labs/graphify) (`pip install graphifyy`) with a graph built once (`graphify update .` → `graphify-out/graph.json`).
+
+```
+npm i -D jest-graph-tia
+npx jest-graph-tia run --changed-since main            # select + run + propagate exit code
+npx jest-graph-tia run --changed-since main --dry-run  # print selection only
+  --explain              # per-test: source, via-file, hops, confidence tier, graph path
+  --explain-json <path>  # same, machine-readable (explainVersion: 2)
+  --fallback-full        # force the full suite
+  --config <path>        # default: jest-graph-tia.config.json
+  --no-update-graph      # skip the incremental `graphify update` before selection
+```
+
+## Safety fallbacks — full suite runs when
+
+- a lockfile, jest/babel/tsconfig, `.env*`, or CI workflow file changed
+- graph.json is missing, unparsable, or too stale (`fallback.maxGraphAgeCommits`)
+- any changed file has zero nodes in the graph
+- your own globs match (`fallback.extraGlobs`)
+
+## Config (`jest-graph-tia.config.json`, all optional)
+
+```json
+{
+  "graphPath": "graphify-out/graph.json",
+  "traversal": { "extracted": 6, "inferred": 2, "ambiguous": 0 },
+  "fallback": { "maxGraphAgeCommits": 50, "extraGlobs": [] },
+  "includeNonJs": false,
+  "updateGraph": true,
+  "jestArgs": []
+}
+```
+
+Hop budgets are per confidence tier of a path's **weakest** edge: `EXTRACTED` (AST fact), `INFERRED` (model-derived), `AMBIGUOUS` (off by default).
+
+## Repo layout
+
+```
+packages/core   pure logic: graph parsing, expansion, fallback rules, explain — no process spawning
+packages/cli    the jest-graph-tia binary — owns git/graphify/jest subprocesses and exit codes
+fixtures/       deterministic mini Jest repo + hand-written graph.json (drives unit + e2e tests)
+examples/       CI YAML + config examples
+docs/SPEC.md    behavior spec — source of truth
+benchmarks/     delta measurement harness (run it on your repo to see what the graph adds)
+```
+
+## Development
+
+```
+npm install
+npm run build
+npm test        # 40 tests: unit + 100-scenario superset-invariant property test + subprocess e2e
+```
+
+Non-goals (v0.2): pruning below Jest's baseline, other runners, per-line coverage mapping, UI. See `docs/SPEC.md`.
