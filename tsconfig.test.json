@@ -2,6 +2,7 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": false,
+    "isolatedModules": true,
     "declaration": false,
     "sourceMap": false,
     "types": ["jest", "node"]
