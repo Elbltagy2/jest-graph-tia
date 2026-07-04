@@ -1,0 +1,8 @@
+{
+  "graphPath": "graphify-out/graph.json",
+  "traversal": { "extracted": 6, "inferred": 2, "ambiguous": 0 },
+  "fallback": { "maxGraphAgeCommits": 50, "extraGlobs": ["db/migrations/**"] },
+  "includeNonJs": false,
+  "updateGraph": true,
+  "jestArgs": []
+}

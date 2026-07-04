@@ -1,0 +1,21 @@
+# Example only — not a packaged action (out of scope for MVP).
+# Runs jest-graph-tia on pull requests, selecting tests impacted by the diff.
+name: tests (impacted only)
+on: pull_request
+
+jobs:
+  tia:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need merge-base with the target branch
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: pip install graphifyy # graphify CLI (builds/refreshes graph.json)
+      - run: npx jest-graph-tia run --changed-since origin/${{ github.base_ref }} --explain
