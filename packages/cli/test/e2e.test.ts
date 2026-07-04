@@ -65,6 +65,19 @@ describe("jest-graph-tia e2e on the fixture repo", () => {
     expect(pass.out).toContain("pricing.test.js");
   });
 
+  it("@tia-covers: fs-read structure test selected when its target changes", () => {
+    sh(repo, "bash", ["-c", `printf '\\n// touched\\n' >> src/math.js && git -c user.email=t@t -c user.name=t commit -qam "touch math"`]);
+    const r = runCli(repo, ["--dry-run", "--explain"]);
+    expect(r.status).toBe(0);
+    expect(r.out).toContain("@tia-covers: injected");
+    expect(r.out).toContain("math-structure.test.js");
+    // structure test has no import of math.js — only the directive links them
+    const structRow = r.out.split("\n").find((l) => l.includes("math-structure.test.js") && !l.includes("$"));
+    expect(structRow).toContain("graphify");
+    // calc.test still arrives via jest's own static chain
+    expect(r.out).toContain("calc.test.js");
+  });
+
   it("falls back to the full suite when a lockfile changes", () => {
     sh(repo, "bash", ["-c", "echo '{}' > package-lock.json && git add package-lock.json"]);
     const r = runCli(repo, ["--dry-run"]);

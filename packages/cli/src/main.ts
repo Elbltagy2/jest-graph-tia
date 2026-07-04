@@ -13,8 +13,11 @@ import {
   explainSelection,
   formatExplanation,
   auditCoverage,
+  applyDirectives,
   type TiaConfig,
+  type ParsedGraph,
 } from "@jest-graph-tia/core";
+import { collectDirectives } from "./directives.js";
 import { getChangedFiles, graphAgeCommits } from "./git.js";
 import { findRelatedTests, listAllTests, runJest } from "./jest.js";
 import { loadGraph, updateGraph } from "./graph.js";
@@ -99,6 +102,19 @@ const USAGE = `usage:
   jest-graph-tia run --changed-since <ref> [--dry-run] [--explain] [--explain-json <path>] [--fallback-full] [--config <path>] [--no-update-graph]
   jest-graph-tia audit [--explain-json <path>] [--config <path>] [--no-update-graph]`;
 
+/** Collect @tia-covers directives from test files and inject them as graph edges. */
+function injectDirectives(graph: ParsedGraph, repoRoot: string, testFilesRel: readonly string[]): void {
+  const dirs = collectDirectives(repoRoot, testFilesRel);
+  if (dirs.length === 0) return;
+  const { applied, unresolved } = applyDirectives(graph, dirs);
+  if (applied > 0) {
+    console.log(`@tia-covers: injected ${applied} edge(s) from ${new Set(dirs.map((d) => d.testFile)).size} test file(s)`);
+  }
+  for (const u of unresolved) {
+    console.warn(`warning: @tia-covers target not found in graph: ${u.target} (${u.testFile})`);
+  }
+}
+
 /** `audit`: scan the whole codebase and report source files no test reaches. */
 function auditMain(args: CliArgs): void {
   const repoRoot = git(["rev-parse", "--show-toplevel"], process.cwd());
@@ -116,6 +132,8 @@ function auditMain(args: CliArgs): void {
     t.startsWith(repoRoot + "/") ? t.slice(repoRoot.length + 1) : t
   );
   if (testFiles.length === 0) fail("jest --listTests returned no tests — is jest set up in this repo?");
+
+  injectDirectives(loaded.graph, repoRoot, testFiles);
 
   const result = auditCoverage(loaded.graph, {
     traversal: cfg.traversal,
@@ -203,6 +221,13 @@ function main(): void {
   const loaded = loadGraph(graphPath);
   if (!loaded.ok) console.warn(`warning: ${loaded.error}`);
 
+  // 2b. @tia-covers directives: explicit test→file edges (fs-reads, fixtures, CLIs)
+  const fullSuite = listAllTests(repoRoot);
+  const relPath = (p: string) => (p.startsWith(repoRoot + "/") ? p.slice(repoRoot.length + 1) : p);
+  if (loaded.graph) {
+    injectDirectives(loaded.graph, repoRoot, fullSuite.map(relPath));
+  }
+
   // 3. expansion (graph only ever ADDS files — invariant lives in core)
   const expansion = loaded.graph
     ? expandFiles(loaded.graph, changed.all, cfg.traversal, { includeNonJs: cfg.includeNonJs })
@@ -220,9 +245,8 @@ function main(): void {
     console.log(`FALLBACK → full suite:`);
     for (const r of fallback.reasons) console.log(`  - ${r}`);
     if (args.dryRun) {
-      const all = listAllTests(repoRoot);
-      console.log(all.join("\n"));
-      console.log(`\n(dry run) would run the FULL suite: ${all.length} tests`);
+      console.log(fullSuite.join("\n"));
+      console.log(`\n(dry run) would run the FULL suite: ${fullSuite.length} tests`);
       process.exit(0);
     }
     process.exit(runJest(repoRoot, undefined, cfg.jestArgs));
@@ -254,7 +278,6 @@ function main(): void {
 
   // amplification guard: two chained expansions (graph hops × jest reverse-traversal)
   // can balloon toward the full suite — surface the ratio on EVERY run.
-  const fullSuite = listAllTests(repoRoot);
   const pct = fullSuite.length === 0 ? 0 : Math.round((selected.length / fullSuite.length) * 1000) / 10;
   const graphOnlyFiles = expandedExisting.filter((f) => expansion.hits.has(f));
   console.log(
